@@ -6,7 +6,6 @@ import torch.nn.functional as F
 import torchvision
 import matplotlib.pyplot as plt
 from time import sleep
-#from livelossplot import PlotLosses
 
 from networks import Generator, Discriminator
 from util import Util
@@ -14,49 +13,56 @@ from util import Util
 class PegasusGenerator():
 
     def __init__(self):
-
+        
+        # Path for saving and loading models
+        self.generatorPath = 'models/generator.pth'
+        self.discriminatorPath = 'models/discriminator.pth'
+        
         self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-        self.class_names = ['airplane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
+        self.class_names = {'airplane' : 0, 'car' : 1, 'bird' : 2, 'cat' : 3, 'deer' : 4, 'dog' : 5, 'frog' : 6, 'horse' : 7, 'ship' : 8, 'truck' : 9}
         self.util = Util()
 
         # Load training data
-        self.train_loader = self.loadTrainingData()
+        self.trainset = self.loadTrainingData()
+        self.util.filterDataset(self.trainset, [self.class_names['bird'], self.class_names['horse']])
+        self.train_loader = torch.utils.data.DataLoader(self.trainset, shuffle=True, batch_size=16, drop_last=True)
         self.train_iterator = iter(self.util.cycle(self.train_loader))
 
         # Load testing data
-        self.test_loader = self.loadTestingData()
-        self.train_iterator = iter(self.util.cycle(self.test_loader))
+        self.testset = self.loadTestingData()
+        self.util.filterDataset(self.testset, [self.class_names['bird'], self.class_names['horse']])
+        self.test_loader = torch.utils.data.DataLoader(self.testset, shuffle=True, batch_size=16, drop_last=True)
+        self.test_iterator = iter(self.util.cycle(self.test_loader))
 
-        # Init generator and discriminator
+        # Create and load generator and discriminator
         self.generator = Generator().to(self.device)
+        self.generator.load_state_dict(torch.load(self.generatorPath))
+
         self.discriminator = Discriminator().to(self.device)
+        self.discriminator.load_state_dict(torch.load(self.discriminatorPath))
 
         # initialise the optimiser
         self.optimiser_G = torch.optim.Adam(self.generator.parameters(), lr=0.001)
         self.optimiser_D = torch.optim.Adam(self.discriminator.parameters(), lr=0.001)
         self.bce_loss = nn.BCELoss()
         self.epoch = 0
-        #liveplot = PlotLosses()
 
     def loadTrainingData(self):
-        train_loader = torch.utils.data.DataLoader(
-            torchvision.datasets.CIFAR10('data', train=True, download=True, transform=torchvision.transforms.Compose([
-                torchvision.transforms.ToTensor()
-            ])), shuffle=True, batch_size=16, drop_last=True)
-        return train_loader
+        trainset = torchvision.datasets.CIFAR10('data', train=True, download=True, transform=torchvision.transforms.Compose([
+            torchvision.transforms.ToTensor()
+        ]))
+        return trainset
 
     def loadTestingData(self):
-        test_loader = torch.utils.data.DataLoader(
-            torchvision.datasets.CIFAR10('data', train=False, download=True, transform=torchvision.transforms.Compose([
-                torchvision.transforms.ToTensor()
-            ])), shuffle=False, batch_size=16, drop_last=True)
-        return test_loader
+        testset = torchvision.datasets.CIFAR10('data', train=False, download=True, transform=torchvision.transforms.Compose([
+            torchvision.transforms.ToTensor()
+        ]))
+        return testset
 
     def train(self):
         # training loop
         while (self.epoch<25):
-            print(self.epoch)
             
             # arrays for metrics
             logs = {}
@@ -67,7 +73,7 @@ class PegasusGenerator():
             for i in range(1000):
                 x,t = next(self.train_iterator)
                 x,t = x.to(self.device), t.to(self.device)
-
+                
                 # train discriminator 
                 self.optimiser_D.zero_grad()
                 g = self.generator.generate(torch.randn(x.size(0), 100, 1, 1).to(self.device))
@@ -87,11 +93,6 @@ class PegasusGenerator():
                 gen_loss_arr = np.append(gen_loss_arr, loss_g.item())
                 dis_loss_arr = np.append(dis_loss_arr, loss_d.item())
 
-                # plot some examples
-                #plt.grid(False)
-                #plt.imshow(torchvision.utils.make_grid(g).cpu().data.permute(0,2,1).contiguous().permute(2,1,0), cmap=plt.cm.binary)
-                #plt.show()
-
                 self.epoch = self.epoch+1
 
         g = self.generator.generate(torch.randn(x.size(0), 100, 1, 1).to(self.device))
@@ -99,6 +100,9 @@ class PegasusGenerator():
         plt.grid(False)
         plt.imshow(torchvision.utils.make_grid(g).cpu().data.permute(0,2,1).contiguous().permute(2,1,0), cmap=plt.cm.binary)
         plt.show()
+
+        torch.save(self.generator.state_dict(), self.generatorPath)
+        torch.save(self.discriminator.state_dict(), self.discriminatorPath)
 
 pg = PegasusGenerator()
 pg.train()
