@@ -19,6 +19,18 @@ class PegasusGenerator():
         self.discriminatorPath = 'models/discriminator.pth'
         
         self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+        
+        # Create generator and discriminator
+        self.generator = Generator().to(self.device)
+        self.discriminator = Discriminator().to(self.device)
+
+        # Load weights
+        if self.device == torch.device('cpu'):
+            self.generator.load_state_dict(torch.load(self.generatorPath, map_location=torch.device('cpu')))
+            self.discriminator.load_state_dict(torch.load(self.discriminatorPath, map_location=torch.device('cpu')))
+        else:
+            self.generator.load_state_dict(torch.load(self.generatorPath))
+            self.discriminator.load_state_dict(torch.load(self.discriminatorPath))
 
         self.class_names = {'airplane' : 0, 'car' : 1, 'bird' : 2, 'cat' : 3, 'deer' : 4, 'dog' : 5, 'frog' : 6, 'horse' : 7, 'ship' : 8, 'truck' : 9}
         self.util = Util()
@@ -34,13 +46,6 @@ class PegasusGenerator():
         self.util.filterDataset(self.testset, [self.class_names['bird'], self.class_names['horse']])
         self.test_loader = torch.utils.data.DataLoader(self.testset, shuffle=True, batch_size=16, drop_last=True)
         self.test_iterator = iter(self.util.cycle(self.test_loader))
-
-        # Create and load generator and discriminator
-        self.generator = Generator().to(self.device)
-        self.generator.load_state_dict(torch.load(self.generatorPath))
-
-        self.discriminator = Discriminator().to(self.device)
-        self.discriminator.load_state_dict(torch.load(self.discriminatorPath))
 
         # initialise the optimiser
         self.optimiser_G = torch.optim.Adam(self.generator.parameters(), lr=0.001)
@@ -60,6 +65,18 @@ class PegasusGenerator():
         ]))
         return testset
 
+    def grad_penalty(self, M, real_data, fake_data, lmbda=10):
+        alpha = torch.rand(real_data.size(0), 1, 1, 1).to(self.device)
+        lerp = alpha * real_data + ((1 - alpha) * fake_data)
+        lerp = lerp.to(self.device)
+        lerp.requires_grad = True
+        lerp_d = M.discriminate(lerp)
+
+        gradients = torch.autograd.grad(outputs=lerp_d, inputs=lerp, grad_outputs=torch.ones(lerp_d.size()).to(self.device), create_graph=True, retain_graph=True, only_inputs=True)[0]
+        gradients = gradients.view(gradients.size(0), -1)
+        
+        return ((gradients.norm(2, dim=1) - 1) ** 2).mean() * lmbda
+
     def train(self):
         # training loop
         while (self.epoch<25):
@@ -68,30 +85,42 @@ class PegasusGenerator():
             logs = {}
             gen_loss_arr = np.zeros(0)
             dis_loss_arr = np.zeros(0)
+            grad_pen_arr = np.zeros(0)
+
 
             # iterate over some of the train dateset
-            for i in range(1000):
-                x,t = next(self.train_iterator)
-                x,t = x.to(self.device), t.to(self.device)
+            for i in range(10):
                 
-                # train discriminator 
-                self.optimiser_D.zero_grad()
-                g = self.generator.generate(torch.randn(x.size(0), 100, 1, 1).to(self.device))
-                l_r = self.bce_loss(self.discriminator.discriminate(x).mean(), torch.ones(1)[0].to(self.device)) # real -> 1
-                l_f = self.bce_loss(self.discriminator.discriminate(g.detach()).mean(), torch.zeros(1)[0].to(self.device)) #  fake -> 0
-                loss_d = (l_r + l_f)/2.0
-                loss_d.backward()
-                self.optimiser_D.step()
+                 # train discriminator k times
+                for k in range(5):
+                
+                    x,t = next(self.train_iterator)
+                    x,t = x.to(self.device), t.to(self.device)
+                    self.optimiser_D.zero_grad()
+
+                    g = self.generator.generate(torch.randn(x.size(0), 100, 1, 1).to(self.device))
+                    l_r = self.discriminator.discriminate(x).mean()
+                    l_r.backward(-1.0*torch.ones(1)[0].to(self.device)) # real -> -1
+                    l_f = self.discriminator.discriminate(g.detach()).mean()
+                    l_f.backward(torch.ones(1)[0].to(self.device)) #  fake -> 1
+                                
+                    loss_d = (l_f - l_r)
+                    grad_pen = self.grad_penalty(self.discriminator, x.data, g.data, lmbda=10)
+                    grad_pen.backward()
+                    
+                    self.optimiser_D.step()
+                    
+                    dis_loss_arr = np.append(dis_loss_arr, loss_d.item())
+                    grad_pen_arr = np.append(grad_pen_arr, grad_pen.item())
                 
                 # train generator
                 self.optimiser_G.zero_grad()
                 g = self.generator.generate(torch.randn(x.size(0), 100, 1, 1).to(self.device))
-                loss_g = self.bce_loss(self.discriminator.discriminate(g).mean(), torch.ones(1)[0].to(self.device)) # fake -> 1
-                loss_g.backward()
+                loss_g = self.discriminator.discriminate(g).mean()
+                loss_g.backward(-1.0*torch.ones(1)[0].to(self.device)) # fake -> -1
                 self.optimiser_G.step()
-
-                gen_loss_arr = np.append(gen_loss_arr, loss_g.item())
-                dis_loss_arr = np.append(dis_loss_arr, loss_d.item())
+                
+                gen_loss_arr = np.append(gen_loss_arr, -loss_g.item())
 
                 self.epoch = self.epoch+1
 
