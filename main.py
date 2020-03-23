@@ -74,7 +74,7 @@ class PegasusGenerator():
         plt.imshow(torchvision.utils.make_grid(g).cpu().data.permute(0,2,1).contiguous().permute(2,1,0), cmap=plt.cm.binary)
         plt.show()
 
-        for epoch in range(10):
+        for epoch in range(50):
 
             # arrays for metrics
             logs = {}
