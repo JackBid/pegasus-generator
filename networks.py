@@ -20,7 +20,8 @@ class Generator(nn.Module):
             nn.BatchNorm2d(f),
             nn.ReLU(True),
             nn.ConvTranspose2d(f, 3, 4, 2, 1, bias=False),
-            nn.Sigmoid()
+            #nn.Sigmoid()
+            nn.Tanh()
         )
 
 class Discriminator(nn.Module):
@@ -39,5 +40,5 @@ class Discriminator(nn.Module):
             nn.BatchNorm2d(f*8),
             nn.LeakyReLU(0.2, inplace=True),
             nn.Conv2d(f*8, 1, 4, 2, 1, bias=False),
-            #nn.Sigmoid()
+            nn.Sigmoid()
         )
