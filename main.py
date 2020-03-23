@@ -67,6 +67,13 @@ class PegasusGenerator():
         return testset
 
     def train(self):
+
+        g = self.generator.generate(torch.randn(self.batchSize, 100, 1, 1).to(self.device))
+
+        plt.grid(False)
+        plt.imshow(torchvision.utils.make_grid(g).cpu().data.permute(0,2,1).contiguous().permute(2,1,0), cmap=plt.cm.binary)
+        plt.show()
+
         for epoch in range(10):
 
             # arrays for metrics
@@ -114,9 +121,6 @@ class PegasusGenerator():
 
                 loss_g.backward()
                 self.optimiser_G.step()
-
-                torch.save(self.generator.state_dict(), self.generatorPath)
-                torch.save(self.discriminator.state_dict(), self.discriminatorPath)
 
             #en_loss_per_epoch.append(gen_loss_arr[len(gen_loss_arr) - 1])
             #dis_loss_per_epoch.append(dis_loss_arr[len(dis_loss_arr) - 1])
