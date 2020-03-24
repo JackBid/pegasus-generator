@@ -51,16 +51,14 @@ test_set = PegasusDataset('data', train=False, download=True, transform=torchvis
 train_loader = torch.utils.data.DataLoader(train_set, shuffle=True, batch_size=BATCH_SIZE, drop_last=True)
 test_loader = torch.utils.data.DataLoader(test_set, shuffle=True, batch_size=BATCH_SIZE, drop_last=True)
 
-
 G = Generator().to(device)
 D = Discriminator().to(device)
 
-if device == torch.device('cpu'):
-    G.load_state_dict(torch.load('models/generator.pth', map_location=torch.device('cpu')))
-    D.load_state_dict(torch.load('models/discriminator.pth', map_location=torch.device('cpu')))
-else:
-    G.load_state_dict(torch.load('models/generator.pth'))
-    D.load_state_dict(torch.load('models/discriminator.pth'))
+g = G.generate(torch.randn(BATCH_SIZE, 100, 1, 1).to(device))
+
+plt.grid(False)
+plt.imshow(torchvision.utils.make_grid(g).cpu().data.permute(0,2,1).contiguous().permute(2,1,0), cmap=plt.cm.binary)
+plt.show()
 
 # initialise the optimiser
 optimiser_G = torch.optim.Adam(G.parameters(), lr=0.0002, betas=(0.5,0.99))
