@@ -89,8 +89,8 @@ class PegasusGenerator():
                 batch, targets = batch.to(self.device), targets.to(self.device)
                 
                 # applying label softness
-                real_label = torch.full((self.batchSize, ), 1, device=self.device)
-                fake_label = torch.full((self.batchSize, ), 0, device=self.device)
+                real_label = torch.full((self.batchSize, ), 1 * (1 - random.random() * 0.3), device=self.device)
+                fake_label = torch.full((self.batchSize, ), 0.3, device=self.device)
 
                 # train discriminator 
                 self.optimiser_D.zero_grad()
@@ -115,6 +115,9 @@ class PegasusGenerator():
                 loss_d = (l_r + l_f) / 2
                 dis_loss_arr = np.append(dis_loss_arr, loss_d.mean().item())
 
+            count += 1
+
+            if count == 2:
                 # train generator
                 self.optimiser_G.zero_grad()
                 g = self.generator.generate(torch.randn(batch.size(0), 100, 1, 1).to(self.device))
@@ -123,6 +126,8 @@ class PegasusGenerator():
 
                 loss_g.backward()
                 self.optimiser_G.step()
+
+                count = 0
 
             #en_loss_per_epoch.append(gen_loss_arr[len(gen_loss_arr) - 1])
             #dis_loss_per_epoch.append(dis_loss_arr[len(dis_loss_arr) - 1])
