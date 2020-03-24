@@ -76,7 +76,7 @@ class PegasusGenerator():
         #plt.imshow(torchvision.utils.make_grid(g).cpu().data.permute(0,2,1).contiguous().permute(2,1,0), cmap=plt.cm.binary)
         #plt.show()
 
-        for epoch in range(200):
+        for epoch in range(100):
 
             # arrays for metrics
             logs = {}
@@ -115,19 +115,19 @@ class PegasusGenerator():
                 loss_d = (l_r + l_f) / 2
                 dis_loss_arr = np.append(dis_loss_arr, loss_d.mean().item())
 
-            count += 1
+                count += 1
 
-            if count == 2:
-                # train generator
-                self.optimiser_G.zero_grad()
-                g = self.generator.generate(torch.randn(batch.size(0), 100, 1, 1).to(self.device))
+                if count == 3:
+                    # train generator
+                    self.optimiser_G.zero_grad()
+                    g = self.generator.generate(torch.randn(batch.size(0), 100, 1, 1).to(self.device))
 
-                loss_g = self.bce_loss(self.discriminator.discriminate(g).view(-1), real_label) # fake -> 1
+                    loss_g = self.bce_loss(self.discriminator.discriminate(g).view(-1), real_label) # fake -> 1
 
-                loss_g.backward()
-                self.optimiser_G.step()
+                    loss_g.backward()
+                    self.optimiser_G.step()
 
-                count = 0
+                    count = 0
 
             #en_loss_per_epoch.append(gen_loss_arr[len(gen_loss_arr) - 1])
             #dis_loss_per_epoch.append(dis_loss_arr[len(dis_loss_arr) - 1])
