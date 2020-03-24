@@ -8,7 +8,7 @@ class Generator(nn.Module):
         super(Generator, self).__init__()
         self.generate = nn.Sequential(
             nn.ConvTranspose2d(100, f*8, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(64*8),
+            nn.BatchNorm2d(f*8),
             nn.ReLU(True),
             nn.ConvTranspose2d(f*8, f*4, 4, 2, 1, bias=False),
             nn.BatchNorm2d(f*4),
