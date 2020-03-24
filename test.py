@@ -54,6 +54,13 @@ test_loader = torch.utils.data.DataLoader(test_set, shuffle=True, batch_size=BAT
 G = Generator().to(device)
 D = Discriminator().to(device)
 
+if device == torch.device('cpu'):
+    G.load_state_dict(torch.load('models/generator.pth', map_location=torch.device('cpu')))
+    D.load_state_dict(torch.load('models/discriminator.pth', map_location=torch.device('cpu')))
+else:
+    G.load_state_dict(torch.load('models/generator.pth'))
+    D.load_state_dict(torch.load('models/discriminator.pth'))
+
 g = G.generate(torch.randn(BATCH_SIZE, 100, 1, 1).to(device))
 
 plt.grid(False)
