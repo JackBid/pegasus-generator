@@ -70,11 +70,29 @@ class PegasusGenerator():
 
         count = 0
 
-        #g = self.generator.generate(torch.randn(self.batchSize, 100, 1, 1).to(self.device))
+        g = self.generator.generate(torch.randn(self.batchSize, 100, 1, 1).to(self.device))
+        '''
+        print(g)
 
-        #plt.grid(False)
-        #plt.imshow(torchvision.utils.make_grid(g).cpu().data.permute(0,2,1).contiguous().permute(2,1,0), cmap=plt.cm.binary)
-        #plt.show()
+        plt.grid(False)
+        plt.imshow(torchvision.utils.make_grid(g).cpu().data.permute(0,2,1).contiguous().permute(2,1,0), cmap=plt.cm.binary)
+        plt.show()'''
+        num_images_displayed = 0
+        batch_num = 0
+        while num_images_displayed < 64:
+            plt.subplot(8,8,num_images_displayed+1)
+            plt.xticks([])
+            plt.yticks([])
+            plt.grid(False)
+            plt.imshow(g[batch_num].cpu().data.permute(0,2,1).contiguous().permute(2,1,0), cmap=plt.cm.binary)
+            plt.show()
+
+            num_images_displayed += 1
+            batch_num += 1
+
+            if batch_num >= self.batchSize:
+                batch_num = 0
+                g = self.generator.generate(torch.randn(self.batchSize, 100, 1, 1).to(self.device))
 
         for epoch in range(100):
 
