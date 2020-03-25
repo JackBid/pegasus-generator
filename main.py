@@ -7,95 +7,87 @@ import torch.nn.functional as F
 import torchvision
 import matplotlib.pyplot as plt
 from time import sleep
+from networks import Generator
+from networks import Discriminator
+from dataset import PegasusDataset
 
-from networks import Generator, Discriminator
-from util import Util
+BATCH_SIZE = 32
+P_SWITCH = 1
+DG_RATIO = 1
+LABEL_SOFTNESS = 0.3
+NORMALISE = False
 
 class PegasusGenerator():
+    def __init__(self, generator_path, discriminator_path):
 
-    def __init__(self):
-        
-        # Path for saving and loading models
-        self.generatorPath = 'models/generator.pth'
-        self.discriminatorPath = 'models/discriminator.pth'
-        
         self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-
-        self.batchSize = 32
         
+        # Path for loading and saving model weights
+        self.generator_path = generator_path
+        self.discriminator_path = discriminator_path
+
+        # Get training and testing data
+        train_set = PegasusDataset('data', train=True, download=True, transform=torchvision.transforms.Compose([
+            torchvision.transforms.ToTensor()
+        ]))
+
+        test_set = PegasusDataset('data', train=False, download=True, transform=torchvision.transforms.Compose([
+            torchvision.transforms.ToTensor()
+        ]))
+
+        self.train_loader = torch.utils.data.DataLoader(train_set, shuffle=True, batch_size=BATCH_SIZE, drop_last=True)
+        self.test_loader = torch.utils.data.DataLoader(test_set, shuffle=True, batch_size=BATCH_SIZE, drop_last=True)
+
         # Create generator and discriminator
-        self.generator = Generator().to(self.device)
-        self.discriminator = Discriminator().to(self.device)
+        self.G = Generator().to(self.device)
+        self.D = Discriminator().to(self.device)
 
-        # Load weights
-        if self.device == torch.device('cpu'):
-            self.generator.load_state_dict(torch.load(self.generatorPath, map_location=torch.device('cpu')))
-            self.discriminator.load_state_dict(torch.load(self.discriminatorPath, map_location=torch.device('cpu')))
-        else:
-            self.generator.load_state_dict(torch.load(self.generatorPath))
-            self.discriminator.load_state_dict(torch.load(self.discriminatorPath))
-
-        self.class_names = {'airplane' : 0, 'car' : 1, 'bird' : 2, 'cat' : 3, 'deer' : 4, 'dog' : 5, 'frog' : 6, 'horse' : 7, 'ship' : 8, 'truck' : 9}
-        self.util = Util()
-
-        # Load training data
-        self.trainset = self.loadTrainingData()
-        self.util.filterDataset(self.trainset, [self.class_names['bird'], self.class_names['horse'], self.class_names['airplane'], self.class_names['deer']])
-        self.train_loader = torch.utils.data.DataLoader(self.trainset, shuffle=True, batch_size=self.batchSize, drop_last=True)
-
-        # Load testing data
-        self.testset = self.loadTestingData()
-        self.util.filterDataset(self.testset, [self.class_names['bird'], self.class_names['horse']])
-        self.test_loader = torch.utils.data.DataLoader(self.testset, shuffle=True, batch_size=self.batchSize, drop_last=True)
+        self.loadModels(self.generator_path, self.discriminator_path)
 
         # initialise the optimiser
-        self.optimiser_G = torch.optim.Adam(self.generator.parameters(),  lr=0.0002, betas=(0.5,0.99))
-        self.optimiser_D = torch.optim.Adam(self.discriminator.parameters(),  lr=0.0002, betas=(0.5,0.99))
+        self.optimiser_G = torch.optim.Adam(self.G.parameters(), lr=0.0002, betas=(0.5,0.99))
+        self.optimiser_D = torch.optim.Adam(self.D.parameters(), lr=0.0002, betas=(0.5,0.99))
         self.bce_loss = nn.BCELoss()
-        self.epoch = 0
 
-    def loadTrainingData(self):
-        trainset = torchvision.datasets.CIFAR10('data', train=True, download=True, transform=torchvision.transforms.Compose([
-            torchvision.transforms.ToTensor()
-        ]))
-        return trainset
+    # Load model weights
+    def loadModels(self, generator_path, discriminator_path):
+        if self.device == torch.device('cpu'):
+            self.G.load_state_dict(torch.load(generator_path, map_location=torch.device('cpu')))
+            self.D.load_state_dict(torch.load(discriminator_path, map_location=torch.device('cpu')))
+        else:
+            self.G.load_state_dict(torch.load(generator_path))
+            self.D.load_state_dict(torch.load(discriminator_path))
 
-    def loadTestingData(self):
-        testset = torchvision.datasets.CIFAR10('data', train=False, download=True, transform=torchvision.transforms.Compose([
-            torchvision.transforms.ToTensor()
-        ]))
-        return testset
-
-    def train(self):
-
-        count = 0
-
-        g = self.generator.generate(torch.randn(self.batchSize, 100, 1, 1).to(self.device))
-        '''
-        print(g)
+    # Generate 16 images 
+    def generateTestImages(self):
+        g = self.G.generate(torch.randn(BATCH_SIZE, 100, 1, 1).to(self.device))
 
         plt.grid(False)
         plt.imshow(torchvision.utils.make_grid(g).cpu().data.permute(0,2,1).contiguous().permute(2,1,0), cmap=plt.cm.binary)
-        plt.show()'''
+        plt.show()
+    
+    def train(self, num_epochs):
+        gen_loss_per_epoch = []
+        dis_loss_per_epoch = []
 
-        for epoch in range(100):
-
+        # # training loop
+        for epoch in range(num_epochs):
+            
             # arrays for metrics
             logs = {}
             gen_loss_arr = np.zeros(0)
             dis_loss_arr = np.zeros(0)
 
+            dg_count = 0
+
             # iterate over the training dataset
             for batch, targets in self.train_loader:
 
-                print(batch)
-                print(targets)
-
                 batch, targets = batch.to(self.device), targets.to(self.device)
-                
+
                 # applying label softness
-                real_label = torch.full((self.batchSize, ), 1 * (1 - random.random() * 0.3), device=self.device)
-                fake_label = torch.full((self.batchSize, ), 0.3, device=self.device)
+                real_label = torch.full((BATCH_SIZE, ), 1 * (1 - random.random() *LABEL_SOFTNESS), device=self.device)
+                fake_label = torch.full((BATCH_SIZE, ), 1 * LABEL_SOFTNESS, device=self.device)
 
                 # train discriminator 
                 self.optimiser_D.zero_grad()
@@ -103,14 +95,14 @@ class PegasusGenerator():
                 # process all real batch first
 
                 # calculate real loss
-                l_r = self.bce_loss(self.discriminator.discriminate(batch), real_label) # real -> 1
+                l_r = self.bce_loss(self.D.discriminate(batch), real_label) # real -> 1
                 # backpropogate
                 l_r.backward()
                 
                 # process all fake batch
-                g = self.generator.generate(torch.randn(batch.size(0), 100, 1, 1).to(self.device))
+                g = self.G.generate(torch.randn(batch.size(0), 100, 1, 1).to(self.device))
                 # calculate fake loss
-                l_f = self.bce_loss(self.discriminator.discriminate(g), fake_label) #  fake -> 0      
+                l_f = self.bce_loss(self.D.discriminate(g), fake_label) #  fake -> 0      
                 # backpropogate
                 l_f.backward()
 
@@ -120,33 +112,35 @@ class PegasusGenerator():
                 loss_d = (l_r + l_f) / 2
                 dis_loss_arr = np.append(dis_loss_arr, loss_d.mean().item())
 
-                count += 1
-
-                if count == 3:
+                #used for dg_ratio
+                dg_count += 1
+                
+                #if trained discriminator enough
+                if dg_count == DG_RATIO:
                     # train generator
                     self.optimiser_G.zero_grad()
-                    g = self.generator.generate(torch.randn(batch.size(0), 100, 1, 1).to(self.device))
+                    g = self.G.generate(torch.randn(batch.size(0), 100, 1, 1).to(self.device))
 
-                    loss_g = self.bce_loss(self.discriminator.discriminate(g).view(-1), real_label) # fake -> 1
+                    loss_g = self.bce_loss(self.D.discriminate(g).view(-1), real_label) # fake -> 1
 
                     loss_g.backward()
                     self.optimiser_G.step()
 
-                    count = 0
+                    # append multiple to make plot easier to visualise
+                    for _ in range(DG_RATIO):
+                        gen_loss_arr = np.append(gen_loss_arr, loss_g.mean().item())
 
-            #en_loss_per_epoch.append(gen_loss_arr[len(gen_loss_arr) - 1])
-            #dis_loss_per_epoch.append(dis_loss_arr[len(dis_loss_arr) - 1])
+                    dg_count = 0
+                    
+
+            gen_loss_per_epoch.append(gen_loss_arr[len(gen_loss_arr) - 1])
+            dis_loss_per_epoch.append(dis_loss_arr[len(dis_loss_arr) - 1])
+
+            torch.save(self.G.state_dict(), self.generator_path)
+            torch.save(self.D.state_dict(), self.discriminator_path)
 
             print('Training epoch %d complete' % epoch)
-            
-            #g = self.generator.generate(torch.randn(batch.size(0), 100, 1, 1).to(self.device))
 
-            #plt.grid(False)
-            #plt.imshow(torchvision.utils.make_grid(g).cpu().data.permute(0,2,1).contiguous().permute(2,1,0), cmap=plt.cm.binary)
-            #plt.show()
 
-            torch.save(self.generator.state_dict(), self.generatorPath)
-            torch.save(self.discriminator.state_dict(), self.discriminatorPath)
-
-pg = PegasusGenerator()
-pg.train()
+peg = PegasusGenerator('models/generator.pth', 'models/discriminator.pth')
+peg.train(300)
