@@ -12,10 +12,6 @@ from networks import Discriminator
 from dataset import PegasusDataset
 
 BATCH_SIZE = 32
-P_SWITCH = 1
-DG_RATIO = 1
-LABEL_SOFTNESS = 0.3
-NORMALISE = False
 
 class PegasusGenerator():
     def __init__(self, generator_path, discriminator_path):
@@ -78,60 +74,42 @@ class PegasusGenerator():
             gen_loss_arr = np.zeros(0)
             dis_loss_arr = np.zeros(0)
 
-            dg_count = 0
-
             # iterate over the training dataset
             for batch, targets in self.train_loader:
 
                 batch, targets = batch.to(self.device), targets.to(self.device)
 
-                # applying label softness
-                real_label = torch.full((BATCH_SIZE, ), 1 * (1 - random.random() *LABEL_SOFTNESS), device=self.device)
-                fake_label = torch.full((BATCH_SIZE, ), 1 * LABEL_SOFTNESS, device=self.device)
+                for i in range(3):
 
-                # train discriminator 
-                self.optimiser_D.zero_grad()
+                    real_label = torch.full((BATCH_SIZE, ), 0, device=self.device)
+                    fake_label = torch.full((BATCH_SIZE, ), 1, device=self.device)
 
-                # process all real batch first
+                    # train real
+                    self.optimiser_D.zero_grad()
+                    l_r = self.bce_loss(self.D.discriminate(batch), real_label) # real -> 1
+                    l_r.backward()
+                    self.optimiser_D.step()
 
-                # calculate real loss
-                l_r = self.bce_loss(self.D.discriminate(batch), real_label) # real -> 1
-                # backpropogate
-                l_r.backward()
-                
-                # process all fake batch
-                g = self.G.generate(torch.randn(batch.size(0), 100, 1, 1).to(self.device))
-                # calculate fake loss
-                l_f = self.bce_loss(self.D.discriminate(g), fake_label) #  fake -> 0      
-                # backpropogate
-                l_f.backward()
-
-                # step optimsier
-                self.optimiser_D.step()
-
-                loss_d = (l_r + l_f) / 2
-                dis_loss_arr = np.append(dis_loss_arr, loss_d.mean().item())
-
-                #used for dg_ratio
-                dg_count += 1
-                
-                #if trained discriminator enough
-                if dg_count == DG_RATIO:
-                    # train generator
-                    self.optimiser_G.zero_grad()
+                    # train fake
+                    self.optimiser_D.zero_grad()
                     g = self.G.generate(torch.randn(batch.size(0), 100, 1, 1).to(self.device))
+                    l_f = self.bce_loss(self.D.discriminate(g), fake_label) #  fake -> 0      
+                    l_f.backward()
+                    self.optimiser_D.step()
 
-                    loss_g = self.bce_loss(self.D.discriminate(g).view(-1), real_label) # fake -> 1
+                    loss_d = (l_r + l_f) / 2
+                    dis_loss_arr = np.append(dis_loss_arr, loss_d.mean().item())
+                
+                # train generator
+                self.optimiser_G.zero_grad()
+                g = self.G.generate(torch.randn(batch.size(0), 100, 1, 1).to(self.device))
 
-                    loss_g.backward()
-                    self.optimiser_G.step()
+                loss_g = self.bce_loss(self.D.discriminate(g).view(-1), real_label) # fake -> 1
 
-                    # append multiple to make plot easier to visualise
-                    for _ in range(DG_RATIO):
-                        gen_loss_arr = np.append(gen_loss_arr, loss_g.mean().item())
+                loss_g.backward()
+                self.optimiser_G.step()
 
-                    dg_count = 0
-                    
+                gen_loss_arr = np.append(gen_loss_arr, loss_g.mean().item())
 
             gen_loss_per_epoch.append(gen_loss_arr[len(gen_loss_arr) - 1])
             dis_loss_per_epoch.append(dis_loss_arr[len(dis_loss_arr) - 1])
@@ -141,6 +119,6 @@ class PegasusGenerator():
 
             print('Training epoch %d complete' % epoch)
 
-
 peg = PegasusGenerator('models/generator.pth', 'models/discriminator.pth')
-peg.train(300)
+#peg.generateTestImages()
+peg.train(60)
