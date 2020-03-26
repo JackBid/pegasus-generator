@@ -80,8 +80,18 @@ class PegasusGenerator():
             for batch, targets in self.train_loader:
 
                 batch, targets = batch.to(self.device), targets.to(self.device)
-                real_label = torch.full((BATCH_SIZE, ), 0, device=self.device)
-                fake_label = torch.full((BATCH_SIZE, ), 1, device=self.device)
+                flipped = False
+
+                # Use label softness for discriminator (real = 0.0 -> 0.1, fake = 0.9 -> 1.0)
+                real_label = torch.full((BATCH_SIZE, ), random.randrange(0, 10) / 100, device=self.device)
+                fake_label = torch.full((BATCH_SIZE, ), random.randrange(90, 100) / 100, device=self.device)
+
+                # Chance to flip labels
+                if random.random() < 0.05:
+                    temp = fake_label
+                    fake_label = real_label
+                    real_label = temp
+                    flipped = True
 
                 D_training_len = max(1, self.dgRatio+1)
                 temp = self.dgRatio * -1
@@ -92,11 +102,11 @@ class PegasusGenerator():
                     self.optimiser_D.zero_grad()
 
                     # train real
-                    l_r = self.bce_loss(self.D.discriminate(batch), real_label) # real -> 1
+                    l_r = self.bce_loss(self.D.discriminate(batch), real_label) 
 
                     # train fake
                     g = self.G.generate(torch.randn(batch.size(0), 100, 1, 1).to(self.device))
-                    l_f = self.bce_loss(self.D.discriminate(g), fake_label) #  fake -> 0      
+                    l_f = self.bce_loss(self.D.discriminate(g), fake_label)    
 
                     loss_d = (l_r + l_f) / 2
                     loss_d.backward()
@@ -104,21 +114,32 @@ class PegasusGenerator():
                     self.optimiser_D.step()
                     dis_loss_arr = np.append(dis_loss_arr, loss_d.mean().item())
 
+                # Do not use label softness for generator
+                real_label = torch.full((BATCH_SIZE, ), 0, device=self.device)
+                fake_label = torch.full((BATCH_SIZE, ), 1, device=self.device)
+
+                # If labels very flipped, flip back to original for generator
+                if flipped:
+                    temp = fake_label
+                    fake_label = real_label
+                    real_label = temp
+
                 for i in range(G_training_len):    
                     # train generator
                     self.optimiser_G.zero_grad()
                     g = self.G.generate(torch.randn(batch.size(0), 100, 1, 1).to(self.device))
 
-                    loss_g = self.bce_loss(self.D.discriminate(g).view(-1), real_label) # fake -> 1
+                    loss_g = self.bce_loss(self.D.discriminate(g).view(-1), real_label)
 
                     loss_g.backward()
                     self.optimiser_G.step()
 
                     gen_loss_arr = np.append(gen_loss_arr, loss_g.mean().item())
                 
-                if dis_loss_arr[len(dis_loss_arr)-1] > gen_loss_arr[len(gen_loss_arr)-1]:
+                # Update dgRatio
+                if dis_loss_arr[len(dis_loss_arr)-1] > gen_loss_arr[len(gen_loss_arr)-1] and self.dgRatio < 10:
                     self.dgRatio += 1
-                elif dis_loss_arr[len(dis_loss_arr)-1] < gen_loss_arr[len(gen_loss_arr)-1]:
+                elif dis_loss_arr[len(dis_loss_arr)-1] < gen_loss_arr[len(gen_loss_arr)-1] and self.dgRatio > -10:
                     self.dgRatio -= 1
 
             gen_loss_per_epoch.append(gen_loss_arr[len(gen_loss_arr) - 1])
