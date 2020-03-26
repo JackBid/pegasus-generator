@@ -38,12 +38,14 @@ class PegasusGenerator():
         self.G = Generator().to(self.device)
         self.D = Discriminator().to(self.device)
 
-        self.loadModels(self.generator_path, self.discriminator_path)
+        #self.loadModels(self.generator_path, self.discriminator_path)
 
         # initialise the optimiser
         self.optimiser_G = torch.optim.Adam(self.G.parameters(), lr=0.0002, betas=(0.5,0.99))
         self.optimiser_D = torch.optim.Adam(self.D.parameters(), lr=0.0002, betas=(0.5,0.99))
         self.bce_loss = nn.BCELoss()
+
+        self.dgRatio = 0
 
     # Load model weights
     def loadModels(self, generator_path, discriminator_path):
@@ -78,38 +80,42 @@ class PegasusGenerator():
             for batch, targets in self.train_loader:
 
                 batch, targets = batch.to(self.device), targets.to(self.device)
+                real_label = torch.full((BATCH_SIZE, ), 0, device=self.device)
+                fake_label = torch.full((BATCH_SIZE, ), 1, device=self.device)
 
-                for i in range(3):
+                for i in range(self.dgRatio + 1):
 
-                    real_label = torch.full((BATCH_SIZE, ), 0, device=self.device)
-                    fake_label = torch.full((BATCH_SIZE, ), 1, device=self.device)
+                    self.optimiser_D.zero_grad()
 
                     # train real
-                    self.optimiser_D.zero_grad()
                     l_r = self.bce_loss(self.D.discriminate(batch), real_label) # real -> 1
-                    l_r.backward()
-                    self.optimiser_D.step()
 
                     # train fake
-                    self.optimiser_D.zero_grad()
                     g = self.G.generate(torch.randn(batch.size(0), 100, 1, 1).to(self.device))
                     l_f = self.bce_loss(self.D.discriminate(g), fake_label) #  fake -> 0      
-                    l_f.backward()
-                    self.optimiser_D.step()
 
                     loss_d = (l_r + l_f) / 2
+                    loss_d.backward()
+
+                    self.optimiser_D.step()
                     dis_loss_arr = np.append(dis_loss_arr, loss_d.mean().item())
-                
-                # train generator
-                self.optimiser_G.zero_grad()
-                g = self.G.generate(torch.randn(batch.size(0), 100, 1, 1).to(self.device))
 
-                loss_g = self.bce_loss(self.D.discriminate(g).view(-1), real_label) # fake -> 1
+                for i in range(abs(self.dgRatio) + 1):    
+                    # train generator
+                    self.optimiser_G.zero_grad()
+                    g = self.G.generate(torch.randn(batch.size(0), 100, 1, 1).to(self.device))
 
-                loss_g.backward()
-                self.optimiser_G.step()
+                    loss_g = self.bce_loss(self.D.discriminate(g).view(-1), real_label) # fake -> 1
 
-                gen_loss_arr = np.append(gen_loss_arr, loss_g.mean().item())
+                    loss_g.backward()
+                    self.optimiser_G.step()
+
+                    gen_loss_arr = np.append(gen_loss_arr, loss_g.mean().item())
+
+                if dis_loss_arr[len(dis_loss_arr)-1] > gen_loss_arr[len(gen_loss_arr)-1]:
+                    self.dgRatio += 1
+                elif dis_loss_arr[len(dis_loss_arr)-1] < gen_loss_arr[len(gen_loss_arr)-1]:
+                    self.dgRatio -= 1
 
             gen_loss_per_epoch.append(gen_loss_arr[len(gen_loss_arr) - 1])
             dis_loss_per_epoch.append(dis_loss_arr[len(dis_loss_arr) - 1])
@@ -121,4 +127,4 @@ class PegasusGenerator():
 
 peg = PegasusGenerator('models/generator.pth', 'models/discriminator.pth')
 #peg.generateTestImages()
-peg.train(60)
+peg.train(100)
