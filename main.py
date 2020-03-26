@@ -38,7 +38,7 @@ class PegasusGenerator():
         self.G = Generator().to(self.device)
         self.D = Discriminator().to(self.device)
 
-        self.loadModels(self.generator_path, self.discriminator_path)
+        #self.loadModels(self.generator_path, self.discriminator_path)
 
         # initialise the optimiser
         self.optimiser_G = torch.optim.Adam(self.G.parameters(), lr=0.0002, betas=(0.5,0.99))
@@ -100,7 +100,6 @@ class PegasusGenerator():
                 for i in range(D_training_len):
 
                     self.optimiser_D.zero_grad()
-
                     # train real
                     l_r = self.bce_loss(self.D.discriminate(batch), real_label) 
 
@@ -152,4 +151,4 @@ class PegasusGenerator():
 
 peg = PegasusGenerator('models/generator.pth', 'models/discriminator.pth')
 #peg.generateTestImages()
-peg.train(100)
+peg.train(60)
